@@ -14,7 +14,7 @@ docker exec $vial find /qmk_firmware -name '*_vial.*' -exec mv -t /vial {} +
 
 docker cp $vial:/vial - > vial-files.tar
 docker stop $vial
-docker container rm $id
+docker container rm $vial
 
 rm vial/*
 cp favicon.ico vial/
