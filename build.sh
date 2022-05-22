@@ -17,6 +17,7 @@ docker stop $vial
 docker container rm $id
 
 rm vial/*
+cp favicon.ico vial/
 tar -xvf vial-files.tar
 rm vial-files.tar
 
