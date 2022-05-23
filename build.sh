@@ -9,7 +9,7 @@ chmod +x ansi2html.sh
 vial=$(docker run -dit --name vial --workdir /qmk_firmware qmkfm/base_container)
 docker exec $vial git clone --depth=1 https://github.com/vial-kb/vial-qmk /qmk_firmware
 docker exec $vial make git-submodule
-(docker exec $vial qmk multibuild -j`nproc` -km vial) | ./ansi2html.sh > output.html
+(docker exec $vial qmk multibuild -j`nproc` -km vial) | sh ./ansi2html.sh > output.html
 docker exec $vial qmk clean
 docker exec $vial mkdir /vial
 docker exec $vial find /qmk_firmware -name '*_vial.*' -exec mv -t /vial {} +
@@ -37,7 +37,8 @@ echo "<div style='position:absolute; right:0; top:0; padding: 1em; border-left: 
 echo "<pre>" >> index.html
 
 for file in vial/*; do
-    echo "<a href='$file'>$file</a>" >> index.html;
+    base_file_name=$(basename $file)
+    echo "<a href='$base_file_name'>$base_file_name</a>" >> index.html
 done;
 
 echo "</pre\>" >> index.html
