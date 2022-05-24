@@ -3,7 +3,7 @@
 set -ex
 
 mkdir -p vial
-wget https://raw.githubusercontent.com/pixelb/scripts/master/scripts/ansi2html.sh
+wget https://raw.githubusercontent.com/pixelb/scripts/master/scripts/ansi2html.sh -O ansi2html.sh
 chmod +x ansi2html.sh
 
 vial=$(docker run -dit --name vial --workdir /qmk_firmware qmkfm/base_container)
@@ -22,8 +22,9 @@ rm vial/* || true
 tar -xvf vial-files.tar
 rm vial-files.tar
 
-for file in vial/*; do
-    mv $file ${file%.*}.$(date -I).${file#*.};
+# delete erroneous builds
+for filestring in $(grep 'Build' output.html | grep ERROR | awk '{printf("%s\n",$2) }' | sed 's/\//_/; s/:/_/'); do
+    rm vial/$filestring* || true;
 done;
 
 # prepare stuff for apache
@@ -36,9 +37,15 @@ sed -i '272s/FFFFFF/000000/' index.html
 echo "<div style='position:absolute; right:0; top:0; padding: 1em; border-left: 1px solid #666; border-bottom: 1px solid #666' class=\"f9 b9\"\>" >> index.html
 echo "<pre>" >> index.html
 
+# provide date stamp for each file
+for file in vial/*; do
+    mv $file ${file%.*}.$(date -I).${file#*.};
+done;
+
+# provide download links per page
 for file in vial/*; do
     base_file_name=$(basename $file)
-    echo "<a href='$base_file_name'>$base_file_name</a>" >> index.html
+    echo "<a class='f3' href='$base_file_name'>$base_file_name</a>" >> index.html
 done;
 
 echo "</pre\>" >> index.html
