@@ -23,7 +23,7 @@ tar -xvf vial-files.tar
 rm vial-files.tar
 
 # delete erroneous builds
-for filestring in $(grep 'Build' output.html | grep ERROR | awk '{printf("%s\n",$2) }' | sed 's/\//_/; s/:/_/'); do
+for filestring in $(grep 'Build' output.html | grep ERROR | awk '{printf("%s\n",$2) }' | sed 's/\//_/g; s/:/_/'); do
     rm vial/$filestring* || true;
 done;
 
@@ -34,6 +34,7 @@ head -n -2 output.html > index.html
 sed -i '271s/000000/FFFFFF/' index.html
 sed -i '272s/FFFFFF/000000/' index.html
 
+# this is lifted from qmk.tzarc.io
 echo "<div style='position:absolute; right:0; top:0; padding: 1em; border-left: 1px solid #666; border-bottom: 1px solid #666' class=\"f9 b9\"\>" >> index.html
 echo "<pre>" >> index.html
 
