@@ -150,8 +150,6 @@ def main():
                 error_file.write(html)
 
             # link to failure
-            index_html_contents = index_html_contents.replace(ERROR_FLAG,
-                f'<a class=\'ansi31\' href={implied_firmware_name}.html>{ERROR_FLAG}</a>')
             index_html_contents = index_html_contents.replace(build_status_string,
                 f'<a class=\'ansi31\' href={implied_firmware_name}.html>{build_status_string}</a>')
 
