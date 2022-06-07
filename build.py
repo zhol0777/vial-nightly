@@ -93,10 +93,7 @@ def main():
     head_commit = f'Commit: ({commit_id})\n'
     build_time_string = subprocess.check_output("date", shell=True, encoding='utf8')
     build_date = f'Build time: {build_time_string}'
-    if args.debug:
-        git_log = docker_cmd_stdout(container_id, 'git log HEAD --decorate')
-    else:
-        git_log = docker_cmd_stdout(container_id, 'git log HEAD~4 --decorate')
+    git_log = docker_cmd_stdout(container_id, 'git log --decorate')
 
     # hacky way to flag breaks in
     index_html_contents = conv.convert(''.join([PAGE_HEADER, head_commit, build_date, git_log + '\nSEMAPHORE\n', total_build_output]))
@@ -134,8 +131,6 @@ def main():
         f'<h2>{head_commit}</h2>')
     index_html_contents = index_html_contents.replace(build_date,
         f'<h2>{build_date}</h2>\n<hr>\n')
-    index_html_contents = index_html_contents.replace(git_log,
-        f'{git_log}\n<hr>\n')
     index_html_contents = index_html_contents.replace('class="ansi2html-content"',
         f'class="ansi2html-content" style="float:left"')
     index_html_contents = index_html_contents.replace('SEMAPHORE', '<hr>')
