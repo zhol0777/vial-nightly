@@ -1,11 +1,13 @@
 #!/bin/bash
 
+set -e
+
 python3 ./build.py $1
 
 head -n -2 index.html > ./vial/index.html
 
 # this is lifted from qmk.tzarc.io
-echo "<div style='position:absolute; right:0; top:0; padding: 1em; border-left: 1px solid #666; border-bottom: 1px solid #666' class=\"f9 b9\"\>" >> ./vial/index.html
+echo "<div style='position:absolute; right:0; top:0; padding: 1em; border-left: 1px solid #666; border-bottom: 1px solid #666'\>" >> ./vial/index.html
 echo "<pre>" >> ./vial/index.html
 
 # provide download links per page
@@ -22,3 +24,5 @@ echo "</html\>" >> ./vial/index.html
 for file in error_pages/*; do
     mv $file vial/
 done;
+
+cp favicon.ico vial/

@@ -147,6 +147,4 @@ def main():
     if not args.debug:
         close_containers(container_id)
 
-    subprocess.run('cp favicon.ico vial/', shell=True, stdout=subprocess.DEVNULL)
-
 main()
