@@ -7,6 +7,7 @@ and build.sh should handle the rest
 '''
 
 import argparse
+import glob
 import logging
 import os
 import subprocess
@@ -144,7 +145,8 @@ def main():
         'git_commit_id': docker_cmd_stdout(container_id, 'git rev-parse HEAD').strip(),
         'build_time': subprocess.check_output("date", shell=True, encoding='utf8'),
         'git_log': git_log,
-        'builds': []
+        'builds': [],
+        'fw_files': fw_files
     }
 
     open_threads: list[Thread] = []
@@ -157,7 +159,6 @@ def main():
     for open_thread in open_threads:
         open_thread.join()
 
-    template_data['fw_files'] = fw_files
     template_data['builds'] = sorted(template_data['builds'], key=lambda d: d['sort_line'])
 
     index_html_path = os.path.join(vial_dir, 'index.html')
@@ -195,9 +196,13 @@ def process_build_output(line: str, vial_dir: str, container_id: str, template_d
     elif '[ERRORS]' in line:
         # delete bad firmware, since it is still there when it is too large
         implied_firmware_name = line.split()[1].replace(':', '_').replace('/', '_')
-        implied_firmware_path = os.path.join(vial_dir, implied_firmware_name)
-        subprocess.Popen(f'rm {implied_firmware_path}*', shell=True)
-        fw_files = list(filter(lambda f, n=implied_firmware_name: n not in f, fw_files))
+        implied_firmware_glob = glob.glob(f'{os.path.join(vial_dir, implied_firmware_name)}.*')
+        for file_path in implied_firmware_glob:
+            os.remove(file_path)
+            try:
+                template_data['fw_files'].remove(os.path.basename(file_path))
+            except ValueError:
+                log.error("Could not remove %s from fw_files list", os.path.basename(file_path))
 
         # document failure
         errored_board = line.split()[1].split(':')[0]
