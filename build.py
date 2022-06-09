@@ -10,18 +10,21 @@ import argparse
 import logging
 import os
 import subprocess
+import shutil
+
+from threading import Thread
 
 from ansi2html import Ansi2HTMLConverter
+from jinja2 import Template
 
 VIAL_GIT_URL = 'https://github.com/vial-kb/vial-qmk'
 QMK_FIRMWARE_DIR = '/qmk_firmware'
 QMK_DOCKER_IMAGE = 'qmkfm/base_container'
-ERROR_FLAG = '[ERRORS]'
-PAGE_HEADER = 'vial-qmk nightly\n'
-SEMAPHORE = 'SEMAPHORE'
+PAGE_HEADER = 'vial-qmk nightly'
+PAGE_CHAR_WIDTH = 72
 
+logging.basicConfig(level=logging.DEBUG)
 log = logging.getLogger(__name__)
-log.setLevel(logging.DEBUG)
 
 
 def parse_args():
@@ -49,6 +52,8 @@ def docker_run_cmd(args: argparse.Namespace, container_id: str, cmd: str, line: 
 
 def docker_cmd_stdout(container_id: str, line: str):
     '''Frontend to simplify getting stdout from docker command'''
+    subprocess_cmd = f'docker exec {container_id} {line}'
+    log.info('Running: %s', subprocess_cmd)
     proc = subprocess.run(f'docker exec {container_id} {line}', shell=True, stdout=subprocess.PIPE,
                           stderr=subprocess.STDOUT, encoding='utf8', check=False)
     return proc.stdout
@@ -78,10 +83,16 @@ def main():
         exit(0)
 
     cwd = os.getcwd()
+    vial_dir = os.path.join(cwd, 'vial')
+
+    template_path = os.path.join(cwd, 'templates', 'template.html.jinja')
+    with open(template_path, 'r', encoding='utf8') as template_file:
+        html_template = Template(template_file.read(), trim_blocks=True, lstrip_blocks=True)
 
     if args.debug:
         container_id = 'vial'
     else:
+        log.info("Creating docker containers")
         try:
             create_container_command = \
                 f'docker run -dit --name vial --workdir {QMK_FIRMWARE_DIR} {QMK_DOCKER_IMAGE}'
@@ -103,75 +114,103 @@ def main():
     docker_run_cmd(args, container_id, 'exec',
                    "find /qmk_firmware -name '*_vial.*' -exec mv -t /vial {} +")
 
-    subprocess.run('docker cp {container_id}:/vial -> vial-files.tar', shell=True,
+    log.info("Copying tarball to local")
+    subprocess.run(f'docker cp {container_id}:/vial -> vial-files.tar', shell=True,
                    stdout=subprocess.DEVNULL, check=True)
 
-    # prepare directories for creation/refresh
-    for directory_needed in ['vial', 'error_pages']:
-        try:
-            os.mkdir(os.path.join(cwd, directory_needed))
-        except FileExistsError:
-            pass
-        subprocess.run(f'rm {directory_needed}/*', shell=True,
-                       stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL, check=False)
+    # prepare serving for creation/refresh
+    try:
+        os.mkdir(vial_dir)
+    except FileExistsError:
+        pass
+    subprocess.run(f'rm {vial_dir}/*', shell=True,
+                   stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL, check=False)
 
+    log.info("Untar tarball")
     subprocess.run('tar -xvf vial-files.tar', shell=True, stdout=subprocess.DEVNULL, check=True)
     subprocess.run('rm vial-files.tar', shell=True, stdout=subprocess.DEVNULL, check=True)
 
-    conv = Ansi2HTMLConverter(dark_bg=True)
+    fw_files = []
+    for _, _, files in os.walk(vial_dir):
+        for fw_file in files:
+            fw_files.append(fw_file)
+    fw_files.sort()
 
-    commit_id = docker_cmd_stdout(container_id, 'git rev-parse HEAD').strip()
-    head_commit = f'Commit: ({commit_id})\n'
-    build_time_string = subprocess.check_output("date", shell=True, encoding='utf8')
-    build_date = f'Build time: {build_time_string}'
     git_log = docker_cmd_stdout(container_id, 'git log --decorate')
+    git_log = git_log.replace('<', '(')
+    git_log = git_log.replace('>', ')')
+    template_data = {
+        'page_header': PAGE_HEADER,
+        'git_commit_id': docker_cmd_stdout(container_id, 'git rev-parse HEAD').strip(),
+        'build_time': subprocess.check_output("date", shell=True, encoding='utf8'),
+        'git_log': git_log,
+        'builds': []
+    }
 
-    # hacky way to flag breaks in
-    index_html_contents = conv.convert(''.join([PAGE_HEADER, head_commit, build_date, git_log,
-                                                SEMAPHORE, total_build_output]))
-
+    open_threads: list[Thread] = []
     for line in total_build_output.split('\n'):
-        if ERROR_FLAG in line:
-            # usually formatted as "Build some/board/here:vial ... [ERRORS]"
-            build_status_string = ' '.join(line.split()[0:2])
+        new_thread = Thread(target=process_build_output,
+                            args=(line, vial_dir, container_id, template_data, fw_files))
+        open_threads.append(new_thread)
+        new_thread.start()
 
-            # delete bad firmware, since it is still there when it is too large
-            implied_firmware_name = line.split()[1].replace(':', '_').replace('/', '_')
-            implied_firmware_path = os.path.join(cwd, 'vial', implied_firmware_name)
-            subprocess.Popen(f'rm {implied_firmware_path}*', shell=True)
+    for open_thread in open_threads:
+        open_thread.join()
 
-            # document failure
-            errored_board = line.split()[1].split(':')[0]
-            individual_build_output = \
-                docker_cmd_stdout(container_id, f'qmk compile -kb {errored_board} -km vial')
-            html = conv.convert(individual_build_output)
-            with open(os.path.join(cwd, 'error_pages', f'{implied_firmware_name}.html'),
-                                   'w', encoding="utf-8") as error_file:
-                error_file.write(html)
+    template_data['fw_files'] = fw_files
+    template_data['builds'] = sorted(template_data['builds'], key=lambda d: d['sort_line'])
 
-            # link to failure
-            index_html_contents = index_html_contents.replace(build_status_string,
-                f'<a class=\'ansi31\' href={implied_firmware_name}.html>{build_status_string}</a>')
+    index_html_path = os.path.join(vial_dir, 'index.html')
+    with open(index_html_path, 'w', encoding='utf8') as index_html:
+        index_html.write(html_template.render(template_data))
 
-    index_html_path = os.path.join(cwd, 'index.html')
-
-    # last minute prettying up
-
-    index_html_contents = index_html_contents.replace(PAGE_HEADER,
-        f'<h1>{PAGE_HEADER}</h1>')
-    index_html_contents = index_html_contents.replace(head_commit,
-        f'<h2>{head_commit}</h2>')
-    index_html_contents = index_html_contents.replace(build_date,
-        f'<h2>{build_date}</h2>\n<hr>\n')
-    index_html_contents = index_html_contents.replace('class="ansi2html-content"',
-        'class="ansi2html-content" style="float:left"')
-    index_html_contents = index_html_contents.replace(SEMAPHORE, '<hr>')
-
-    with open(index_html_path, 'w+', encoding="utf-8") as index_html:
-        index_html.write(index_html_contents)
+    shutil.copyfile('favicon.ico', 'vial/favicon.ico')
 
     if not args.debug:
         close_containers(container_id)
+
+
+def process_build_output(line: str, vial_dir: str, container_id: str, template_data: dict,
+                         fw_files: list):
+    '''Build the list of build lines and thread each build'''
+    conv = Ansi2HTMLConverter(dark_bg=True)
+    # line example:
+    # Build arisu:vial                                                        [WARNINGS]
+    build_string = ' '.join(line.split()[0:2])
+    build_spacing = ' ' * (PAGE_CHAR_WIDTH - len(build_string))
+    build = {
+        'sort_line': line,
+        'build_string': build_string,
+        'build_spacing': build_spacing,
+        'ok': False,
+        'warnings': False,
+        'errors': False,
+        'error_log_html': ''
+    }
+
+    if 'OK' in line:
+        build['ok'] = True
+    elif 'WARNINGS' in line:
+        build['warnings'] = True
+    elif '[ERRORS]' in line:
+        # delete bad firmware, since it is still there when it is too large
+        implied_firmware_name = line.split()[1].replace(':', '_').replace('/', '_')
+        implied_firmware_path = os.path.join(vial_dir, implied_firmware_name)
+        subprocess.Popen(f'rm {implied_firmware_path}*', shell=True)
+        fw_files = list(filter(lambda f, n=implied_firmware_name: n not in f, fw_files))
+
+        # document failure
+        errored_board = line.split()[1].split(':')[0]
+        individual_build_output = \
+            docker_cmd_stdout(container_id, f'qmk compile -kb {errored_board} -km vial')
+        html = conv.convert(individual_build_output)
+        with open(os.path.join(vial_dir, f'{implied_firmware_name}.html'),
+                                'w', encoding="utf-8") as error_file:
+            error_file.write(html)
+
+        build['errors'] = True
+        build['error_log_html'] = f'{implied_firmware_name}.html'
+    template_data['builds'].append(build)
 
 
 if __name__ == "__main__":

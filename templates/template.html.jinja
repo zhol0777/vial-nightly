@@ -1,0 +1,85 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html>
+
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <title>vial-qmk nightly</title>
+    <style type="text/css">
+        .ansi2html-content {
+            display: inline;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .body_foreground {
+            color: #AAAAAA;
+        }
+
+        .body_background {
+            background-color: #000000;
+        }
+
+        .body_foreground>.bold,
+        .bold>.body_foreground,
+        body.body_foreground>pre>.bold {
+            color: #FFFFFF;
+            font-weight: normal;
+        }
+
+        .inv_foreground {
+            color: #000000;
+        }
+
+        .inv_background {
+            background-color: #AAAAAA;
+        }
+
+        .ansi1 {
+            font-weight: bold;
+        }
+
+        .ansi31 {
+            color: #aa0000;
+        }
+
+        .ansi32 {
+            color: #00aa00;
+        }
+
+        .ansi33 {
+            color: #aa5500;
+        }
+    </style>
+</head>
+
+<body class="body_foreground body_background" style="font-size: normal;">
+
+<pre class="ansi2html-content">
+<div style="float:left">
+<h1>{{ page_header }}</h1>
+<h2>Commit: {{ git_commit_id }}</h2>
+<h2>Build time: {{ build_time }}</h2>
+<hr>
+{{ git_log }}
+<hr>
+
+{% for build in builds -%}
+    {% if build.ok %}
+{{ build.build_string }}{{ build.build_spacing }}<span class="ansi1 ansi32">[OK]</span>
+    {% elif build.warnings %}
+{{ build.build_string }}{{ build.build_spacing }}<span class="ansi1 ansi33">[WARNINGS]</span>
+    {% elif build.errors %}
+<a class="ansi31" href="{{ build.error_log_html }}">{{ build.build_string }}</a>{{ build.build_spacing }}<span class="ansi1 ansi31"><a class="ansi31" href="{{ build.error_log_html }}">[ERRORS]</a></span>
+    {% endif %}
+{%- endfor %}
+
+</div>
+<div style="float:right">
+{% for fw in fw_files -%}
+<b><a href={{ fw }} style="color:#FAED27">{{ fw }}</a></b>
+{% endfor %}
+<br style="clear:both;"/>
+</div>
+</pre>
+</body> 
+</html>
