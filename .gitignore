@@ -1,6 +1,5 @@
 vial
-error_pages
 vial-files.tar
-error.log
-index.html
 .vscode
+.mypy_cache
+.commit_id
