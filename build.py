@@ -13,6 +13,7 @@ import os
 import subprocess
 import shutil
 
+from pathlib import Path
 from threading import Thread
 
 from ansi2html import Ansi2HTMLConverter
@@ -22,6 +23,7 @@ VIAL_GIT_URL = 'https://github.com/vial-kb/vial-qmk'
 QMK_FIRMWARE_DIR = '/qmk_firmware'
 QMK_DOCKER_IMAGE = 'qmkfm/base_container'
 PAGE_HEADER = 'vial-qmk nightly'
+FIRMWARE_TAR = 'vial-files.tar'
 PAGE_CHAR_WIDTH = 72
 
 logging.basicConfig(level=logging.DEBUG)
@@ -83,53 +85,33 @@ def main():
         close_containers('vial')
         exit(0)
 
-    cwd = os.getcwd()
-    vial_dir = os.path.join(cwd, 'vial')
+    cwd = Path.cwd()
+    # vial_dir = os.path.join(cwd, 'vial')
+    vial_dir = Path(cwd, 'vial')
 
-    template_path = os.path.join(cwd, 'templates', 'template.html.jinja')
-    with open(template_path, 'r', encoding='utf8') as template_file:
-        html_template = Template(template_file.read(), trim_blocks=True, lstrip_blocks=True)
+    container_id = prepare_container(args)
 
-    if args.debug:
-        container_id = 'vial'
-    else:
-        log.info("Creating docker containers")
-        try:
-            create_container_command = \
-                f'docker run -dit --name vial --workdir {QMK_FIRMWARE_DIR} {QMK_DOCKER_IMAGE}'
-            container_id = subprocess.check_output(create_container_command,
-                                                   shell=True, encoding='utf8').strip()
-        except subprocess.CalledProcessError:
-            exit(125)
-
-    if not args.debug:
-        docker_run_cmd(args, container_id, 'exec',
-                       f'git clone --depth=5 {VIAL_GIT_URL} {QMK_FIRMWARE_DIR}')
-        docker_run_cmd(args, container_id, 'exec', 'make git-submodule')
-
-    # thank you piginzoo for showing me what i did wrong here
-    total_build_output = docker_cmd_stdout(container_id, 'qmk multibuild -j`nproc` -km vial')
-
-    docker_run_cmd(args, container_id, 'exec', 'qmk clean')
-    docker_run_cmd(args, container_id, 'exec', 'mkdir -p /vial')
-    docker_run_cmd(args, container_id, 'exec',
-                   "find /qmk_firmware -name '*_vial.*' -exec mv -t /vial {} +")
+    total_build_output = compile_within_container(args, container_id)
 
     log.info("Copying tarball to local")
-    subprocess.run(f'docker cp {container_id}:/vial -> vial-files.tar', shell=True,
+    subprocess.run(f'docker cp {container_id}:/vial -> {FIRMWARE_TAR}', shell=True,
                    stdout=subprocess.DEVNULL, check=True)
 
     # prepare serving for creation/refresh
-    try:
-        os.mkdir(vial_dir)
-    except FileExistsError:
-        pass
-    subprocess.run(f'rm {vial_dir}/*', shell=True,
-                   stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL, check=False)
+    Path('vial').mkdir(exist_ok=True)
+
+    for root, _, stale_files in os.walk(vial_dir):
+        for stale_file in stale_files:
+            os.remove(os.path.join(root, stale_file))
+    template_path = Path(cwd, 'templates', 'template.html.jinja')
+    # with open(template_path, 'r', encoding='utf8') as template_file:
+    #     html_template = Template(template_file.read(), trim_blocks=True, lstrip_blocks=True)
+    html_template = Template(template_path.read_text(encoding='utf8'),
+                             trim_blocks=True, lstrip_blocks=True)
 
     log.info("Untar tarball")
-    subprocess.run('tar -xvf vial-files.tar', shell=True, stdout=subprocess.DEVNULL, check=True)
-    subprocess.run('rm vial-files.tar', shell=True, stdout=subprocess.DEVNULL, check=True)
+    subprocess.run(f'tar -xvf {FIRMWARE_TAR}', shell=True, stdout=subprocess.DEVNULL, check=True)
+    os.remove(os.path.join(cwd, FIRMWARE_TAR))
 
     fw_files = []
     for _, _, files in os.walk(vial_dir):
@@ -165,14 +147,48 @@ def main():
     with open(index_html_path, 'w', encoding='utf8') as index_html:
         index_html.write(html_template.render(template_data))
 
-    shutil.copyfile('favicon.ico', 'vial/favicon.ico')
+    shutil.copyfile(os.path.join(cwd, 'favicon.ico'),
+                    os.path.join(cwd, 'vial', 'favicon.ico'))
 
     if not args.debug:
         close_containers(container_id)
 
+def prepare_container(args: argparse.ArgumentParser) -> str:
+    '''Spin up docker container from qmkfm/base_container and return container ID'''
+    if args.debug:
+        container_id = 'vial'
+    else:
+        log.info("Creating docker containers")
+        try:
+            create_container_command = \
+                f'docker run -dit --name vial --workdir {QMK_FIRMWARE_DIR} {QMK_DOCKER_IMAGE}'
+            container_id = subprocess.check_output(create_container_command,
+                                                   shell=True, encoding='utf8').strip()
+        except subprocess.CalledProcessError:
+            exit(125)
 
-def process_build_output(line: str, vial_dir: str, container_id: str, template_data: dict,
-                         fw_files: list):
+    if not args.debug:
+        docker_run_cmd(args, container_id, 'exec',
+                       f'git clone --depth=5 {VIAL_GIT_URL} {QMK_FIRMWARE_DIR}')
+        docker_run_cmd(args, container_id, 'exec', 'make git-submodule')
+
+    return container_id
+
+
+def compile_within_container(args: argparse.ArgumentParser, container_id: str) -> str:
+    '''Run commands to compile all vial fw within container provided'''
+    # thank you piginzoo for showing me what i did wrong here
+    total_build_output = docker_cmd_stdout(container_id, 'qmk multibuild -j`nproc` -km vial')
+
+    docker_run_cmd(args, container_id, 'exec', 'qmk clean')
+    docker_run_cmd(args, container_id, 'exec', 'mkdir -p /vial')
+    docker_run_cmd(args, container_id, 'exec',
+                   "find /qmk_firmware -name '*_vial.*' -exec mv -t /vial {} +")
+
+    return total_build_output
+
+
+def process_build_output(line: str, vial_dir: str, container_id: str, template_data: dict):
     '''Build the list of build lines and thread each build'''
     conv = Ansi2HTMLConverter(dark_bg=True)
     # line example:
