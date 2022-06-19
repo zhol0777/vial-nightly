@@ -106,12 +106,6 @@ def main():
 
     container_id, git_commit_id = prepare_container(args, cwd)
 
-    git_commit_id = docker_cmd_stdout(container_id, 'git rev-parse HEAD').strip()
-    if files_still_fresh(git_commit_id, cwd):
-        log.info("Files are still fresh! Skipping compilation!")
-        close_containers(container_id)
-        sys.exit(0)
-
     total_build_output = compile_within_container(args, container_id)
 
     log.info("Copying tarball to local")
