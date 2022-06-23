@@ -22,3 +22,4 @@ Made with pointers from looking at Github Actions from xelus22's [QMK-VIA-HEX](h
 * Make index.html look better
   * Ape qmk.tzarc.io's design less
     * sorry, tzarc
+* List state of `rules.mk` for each fw to indicate which features need to be disabled
