@@ -207,11 +207,12 @@ def main():
         'find -name rules.mk | grep /vial/').split('\n')
     open_threads: list[Thread] = []
     for line in total_build_output.split('\n'):
-        new_thread = Thread(target=process_build_output,
-                            args=(args, line, vial_dir, container_id, template_data,
-                                  deepcopy(rules_mk_file_list)))
-        open_threads.append(new_thread)
-        new_thread.start()
+        if line:
+            new_thread = Thread(target=process_build_output,
+                                args=(args, line, vial_dir, container_id, template_data,
+                                    deepcopy(rules_mk_file_list)))
+            open_threads.append(new_thread)
+            new_thread.start()
 
     for open_thread in open_threads:
         open_thread.join()
