@@ -51,7 +51,7 @@ def compile_within_container(args: argparse.Namespace, container_id: str) -> str
     return total_build_output
 
 
-def process_build_output(args: argparse.Namespace, line: str, vial_dir: str, container_id: str,
+def process_build_output(args: argparse.Namespace, line: str, vial_dir: Path, container_id: str,
                          template_data: dict, rules_mk_file_list: list) -> None:
     '''Build the list of build lines and thread each build'''
     conv = Ansi2HTMLConverter(dark_bg=True)
@@ -165,6 +165,17 @@ def main():
     vial_dir = Path(cwd, 'vial')
 
     container_id, git_commit_id = prepare_container(args, cwd)
+    git_log = docker_cmd_stdout(args, container_id, 'git log --decorate')
+    git_log = git_log.replace('<', '(')
+    git_log = git_log.replace('>', ')')
+    template_data = {
+        'page_header': PAGE_HEADER,
+        'git_commit_id': git_commit_id,
+        'build_time': subprocess.check_output("date", shell=True, encoding='utf8'),
+        'git_log': git_log,
+        'builds': [],
+        'fw_files': []
+    }
 
     total_build_output = compile_within_container(args, container_id)
 
@@ -186,22 +197,9 @@ def main():
     subprocess.run(f'tar -xvf {FIRMWARE_TAR}', shell=True, stdout=subprocess.DEVNULL, check=True)
     Path(cwd, FIRMWARE_TAR).unlink()
 
-    fw_files = []
     for fw_file in vial_dir.iterdir():
-        fw_files.append(fw_file.name)
-    fw_files.sort()
-
-    git_log = docker_cmd_stdout(args, container_id, 'git log --decorate')
-    git_log = git_log.replace('<', '(')
-    git_log = git_log.replace('>', ')')
-    template_data = {
-        'page_header': PAGE_HEADER,
-        'git_commit_id': git_commit_id,
-        'build_time': subprocess.check_output("date", shell=True, encoding='utf8'),
-        'git_log': git_log,
-        'builds': [],
-        'fw_files': fw_files
-    }
+        template_data['fw_files'].append(fw_file.name)
+    template_data['fw_files'].sort()
 
     rules_mk_file_list = docker_cmd_stdout(args, container_id,
         'find -name rules.mk | grep /vial/').split('\n')
