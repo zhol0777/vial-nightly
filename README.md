@@ -19,6 +19,8 @@ in `dependencies.txt` using your preferred installation method.
 
 ## Why do I use this?
 
+I had a spare domain name I wanted to use.
+
 Firmware blobs for boards hidden on discords are annoying to find, and so is setting up a QMK dev environment if
 you're not especially tech-savvy, so I set this up for my friends to pull FW from. But, you also don't have to!
 okin#3938 hosts [a similar solution](https://gitlab.com/okin/vial-qmk-firmwares)

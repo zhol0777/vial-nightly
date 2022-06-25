@@ -56,7 +56,7 @@
 
 <pre class="ansi2html-content">
 <div style="float:left">
-<h1>{{ page_header }}</h1>
+<h1><a href="https://github.com/zhol0777/vial-nightly>{{ page_header }}</a></h1>
 <h2>Commit: {{ git_commit_id }}</h2>
 <h2>Build time: {{ build_time }}</h2>
 <hr>
@@ -64,15 +64,12 @@
 <hr>
 
 {% for build in builds -%}
-    {% if build.rules_mk_html -%}
-<a href="{{ build.rules_mk_html }}">[rules.mk]</a>
-    {%- endif %}
     {% if build.ok %}
-{{ build.build_string }}{{ build.build_spacing }}<span class="ansi1 ansi32">[OK]      </span>
+{{ build.build_string }}{{ build.build_spacing }}<span class="ansi1 ansi32">[OK]      <a class="ansi1" href="{{ build.rules_mk_html }}">[rules.mk]</a></span>
     {% elif build.warnings %}
-{{ build.build_string }}{{ build.build_spacing }}<span class="ansi1 ansi33">[WARNINGS]</span>
+{{ build.build_string }}{{ build.build_spacing }}<span class="ansi1 ansi33">[WARNINGS]<a class="ansi1" href="{{ build.rules_mk_html }}">[rules.mk]</a></span>
     {% elif build.errors %}
-<a class="ansi31" href="{{ build.error_log_html }}">{{ build.build_string }}</a>{{ build.build_spacing }}<span class="ansi1 ansi31"><a class="ansi31" href="{{ build.error_log_html }}">[ERRORS]</a>  </span>
+{{ build.build_string }}{{ build.build_spacing }}<span class="ansi1 ansi31"><a class="ansi31" href="{{ build.error_log_html }}">[ERRORS]</a>  <a class="ansi1" href="{{ build.rules_mk_html }}">[rules.mk]</a></span>
     {% endif %}
 {%- endfor %}
 
