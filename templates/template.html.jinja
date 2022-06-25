@@ -64,12 +64,15 @@
 <hr>
 
 {% for build in builds -%}
+    {% if build.rules_mk_html -%}
+<a href="{{ build.rules_mk_html }}">[rules.mk]</a>
+    {%- endif %}
     {% if build.ok %}
-{{ build.build_string }}{{ build.build_spacing }}<span class="ansi1 ansi32">[OK]</span>
+{{ build.build_string }}{{ build.build_spacing }}<span class="ansi1 ansi32">[OK]      </span>
     {% elif build.warnings %}
 {{ build.build_string }}{{ build.build_spacing }}<span class="ansi1 ansi33">[WARNINGS]</span>
     {% elif build.errors %}
-<a class="ansi31" href="{{ build.error_log_html }}">{{ build.build_string }}</a>{{ build.build_spacing }}<span class="ansi1 ansi31"><a class="ansi31" href="{{ build.error_log_html }}">[ERRORS]</a></span>
+<a class="ansi31" href="{{ build.error_log_html }}">{{ build.build_string }}</a>{{ build.build_spacing }}<span class="ansi1 ansi31"><a class="ansi31" href="{{ build.error_log_html }}">[ERRORS]</a>  </span>
     {% endif %}
 {%- endfor %}
 

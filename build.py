@@ -11,77 +11,137 @@ import subprocess
 import shutil
 import sys
 
-from pathlib import Path, PurePath
+from copy import deepcopy
+from pathlib import Path, PosixPath, PurePath
 from threading import Thread
 
 from ansi2html import Ansi2HTMLConverter
 from jinja2 import Template
 
-VIAL_GIT_URL = 'https://github.com/vial-kb/vial-qmk'
-QMK_FIRMWARE_DIR = '/qmk_firmware'
-QMK_DOCKER_IMAGE = 'qmkfm/base_container'
-PAGE_HEADER = 'vial-qmk nightly'
-FIRMWARE_TAR = 'vial-files.tar'
-COMMIT_ID_FILE = '.commit_id'
-PAGE_CHAR_WIDTH = 72
+from docker_interface import docker_cmd_stdout, docker_run_cmd, close_containers, prepare_container
+from util import FIRMWARE_TAR, PAGE_HEADER, PAGE_CHAR_WIDTH
+
 
 logging.basicConfig(level=logging.DEBUG)
 log = logging.getLogger(__name__)
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     '''Parse two arguments, one for debug mode, other to just remember to close containers'''
     parser = argparse.ArgumentParser()
     parser.add_argument('--debug', '-d', action='store_true')
+    parser.add_argument('--force', '-f', action='store_true', default=False)
     parser.add_argument('-close-docker-containers', '-cdc', action='store_true')
     parser.set_defaults(debug=False, close_docker_containers=False)
     args = parser.parse_args()
     return args
 
 
-def docker_run_cmd(args: argparse.Namespace, container_id: str, cmd: str, line: str = None):
-    '''Frontend to simplify running cmd in docker'''
-    try:
-        subprocess_cmd = f'docker {cmd} {container_id} {line}'
-        log.info('Running: %s', subprocess_cmd)
-        subprocess.run(subprocess_cmd, shell=True, stdout=subprocess.DEVNULL,
-                       stderr=subprocess.DEVNULL, check=True)
-    except subprocess.CalledProcessError:
-        log.exception("Exception raised by failure to run command in docker")
-        if not args.debug:
-            close_containers(container_id)
-        sys.exit(1)
+def compile_within_container(args: argparse.Namespace, container_id: str) -> str:
+    '''Run commands to compile all vial fw within container provided'''
+    # thank you piginzoo for showing me what i did wrong here
+    total_build_output = docker_cmd_stdout(args, container_id, 'qmk multibuild -j`nproc` -km vial',
+                                           False)
+
+    docker_run_cmd(args, container_id, 'exec', 'qmk clean')
+    docker_run_cmd(args, container_id, 'exec', 'mkdir -p /vial')
+    docker_run_cmd(args, container_id, 'exec',
+                   "find /qmk_firmware -name '*_vial.*' -exec mv -t /vial {} +")
+
+    return total_build_output
 
 
-def docker_cmd_stdout(container_id: str, line: str):
-    '''Frontend to simplify getting stdout from docker command'''
-    subprocess_cmd = f'docker exec {container_id} {line}'
-    log.info('Running: %s', subprocess_cmd)
-    proc = subprocess.run(f'docker exec {container_id} {line}', shell=True, stdout=subprocess.PIPE,
-                          stderr=subprocess.STDOUT, encoding='utf8', check=False)
-    return proc.stdout
+def process_build_output(args: argparse.Namespace, line: str, vial_dir: str, container_id: str,
+                         template_data: dict, rules_mk_file_list: list) -> None:
+    '''Build the list of build lines and thread each build'''
+    conv = Ansi2HTMLConverter(dark_bg=True)
+    # line example:
+    # Build kbdfans/kbd67/mkiirgb/v3:vial                                     [WARNINGS]
+    build_string = ' '.join(line.split()[0:2])  # Build kbdfans/kbd67/mkiirgb/v3:vial
+    build_spacing = ' ' * (PAGE_CHAR_WIDTH - len(build_string))
+    build = {
+        'sort_line': line,
+        'build_string': build_string,
+        'build_spacing': build_spacing,
+        'ok': False,
+        'warnings': False,
+        'errors': False,
+        'error_log_html': '',
+        'rules_mk_html': ''
+    }
+
+    # provide rules.mk info
+    log_rules_mk_per_firmware(args, line, vial_dir, container_id, conv, build, rules_mk_file_list)
+
+    if '[ERRORS]' in line:
+        process_compilation_error(args, line, vial_dir, container_id, conv, build, template_data)
+    else:
+        if 'OK' in line:
+            build['ok'] = True
+        elif 'WARNINGS' in line:
+            build['warnings'] = True
+    template_data['builds'].append(build)
 
 
-def close_containers(container_id: str):
-    '''Close qmkfm/basecontainer docker containers when needed'''
-    log.info("Closing docker containers...")
-    subprocess.run(f'docker stop {container_id}', shell=True, check=True)
-    subprocess.run(f'docker container rm {container_id}', shell=True, check=True)
+def log_rules_mk_per_firmware(args: argparse.Namespace, line: str, vial_dir: Path,
+                              container_id: str, conv: Ansi2HTMLConverter, build: dict,
+                              rules_mk_file_list: list) -> None:
+    '''find rules.mk for each build and generate html accordingly'''
+    # kbdfans_kbd67_mkiirgb_v3_vial
+    implied_firmware_name = line.split()[1].replace(':', '_').replace('/', '_')
+    # ['kbdfans', 'kbd67', 'mkiirgb', 'v3']
+    subdirs = line.split()[1].split(':')[0].split('/')
+
+    # filter total list down to one list based on subdirs
+    for subdir in subdirs:
+        new_rules_mk_file_list = list(filter(lambda path, sd=subdir: (sd in path),
+                                             rules_mk_file_list))
+        if len(new_rules_mk_file_list) == 0:
+            # if odd possibility that the vial rules.mk doesn't exist somewhere in that subdir, bail
+            continue
+        else:
+            rules_mk_file_list = new_rules_mk_file_list
+        if len(rules_mk_file_list) == 1:
+            # qmkfm basecontainer is debian, hence, forced posixpath
+            rules_mk_file = PosixPath('/qmk_firmware') / rules_mk_file_list[0]
+            rules_mk_content = docker_cmd_stdout(args, container_id, f'cat {rules_mk_file}')
+            rules_mk_html = conv.convert(rules_mk_content)
+            with open(Path(vial_dir, f'{implied_firmware_name}_rules.html'),
+                        'w', encoding="utf-8") as rules_mk_file:
+                rules_mk_file.write(rules_mk_html)
+            build['rules_mk_html'] = f'{implied_firmware_name}_rules.html'
+            continue
+    if not build['rules_mk_html']:
+        log.error("Could not find rules.mk correctly for %s! Filtered paths are %s",
+                  implied_firmware_name, rules_mk_file_list)
 
 
-def files_still_fresh(git_commit_id: str, cwd: Path) -> bool:
-    '''
-    Write a little file with the commit ID of HEAD for git repo,
-    and return True if it matches repo on pulling from git most recently,
-    and save us work of recompiling files all the way over again
-    '''
-    old_commit_id_file = Path(cwd, COMMIT_ID_FILE)
-    if old_commit_id_file.exists():
-        old_commit_id = old_commit_id_file.read_text(encoding='utf-8')
-        if old_commit_id == git_commit_id:
-            return True
-    old_commit_id_file.write_text(git_commit_id, encoding='utf-8')
-    return False
+def process_compilation_error(args: argparse.Namespace, line: str, vial_dir: Path,
+                              container_id: str, conv: Ansi2HTMLConverter,
+                              build: dict, template_data: dict, ) -> None:
+    '''Rebuild firmware that failed to compile properly, and log the build failure'''
+    # delete bad firmware, since it is still there when it is too large
+    implied_firmware_name = line.split()[1].replace(':', '_').replace('/', '_')
+    implied_firmware_glob = glob.glob(f'{Path(vial_dir, implied_firmware_name)}.*')
+    for file_path in implied_firmware_glob:
+        Path(file_path).unlink()
+        try:
+            template_data['fw_files'].remove(PurePath(file_path).name)
+        except ValueError:
+            log.error("Could not remove %s from fw_files list", PurePath(file_path).name)
+
+    # document failure
+    errored_board = line.split()[1].split(':')[0]
+    individual_build_output = \
+        docker_cmd_stdout(args, container_id, f'qmk compile -kb {errored_board} -km vial',
+                          False)
+    html = conv.convert(individual_build_output)
+    with open(Path(vial_dir, f'{implied_firmware_name}_errors.html'),
+                'w', encoding="utf-8") as error_file:
+        error_file.write(html)
+
+    build['errors'] = True
+    build['error_log_html'] = f'{implied_firmware_name}_errors.html'
 
 
 def main():
@@ -131,7 +191,7 @@ def main():
         fw_files.append(fw_file.name)
     fw_files.sort()
 
-    git_log = docker_cmd_stdout(container_id, 'git log --decorate')
+    git_log = docker_cmd_stdout(args, container_id, 'git log --decorate')
     git_log = git_log.replace('<', '(')
     git_log = git_log.replace('>', ')')
     template_data = {
@@ -143,10 +203,13 @@ def main():
         'fw_files': fw_files
     }
 
+    rules_mk_file_list = docker_cmd_stdout(args, container_id,
+        'find -name rules.mk | grep /vial/').split('\n')
     open_threads: list[Thread] = []
     for line in total_build_output.split('\n'):
         new_thread = Thread(target=process_build_output,
-                            args=(line, vial_dir, container_id, template_data))
+                            args=(args, line, vial_dir, container_id, template_data,
+                                  deepcopy(rules_mk_file_list)))
         open_threads.append(new_thread)
         new_thread.start()
 
@@ -164,92 +227,6 @@ def main():
 
     if not args.debug:
         close_containers(container_id)
-
-
-def prepare_container(args: argparse.Namespace, cwd: Path) -> (str, str):
-    '''Spin up docker container from qmkfm/base_container and return container ID'''
-    if args.debug:
-        container_id = 'vial'
-    else:
-        log.info("Creating docker containers")
-        try:
-            create_container_command = \
-                f'docker run -dit --name vial --workdir {QMK_FIRMWARE_DIR} {QMK_DOCKER_IMAGE}'
-            container_id = subprocess.check_output(create_container_command,
-                                                   shell=True, encoding='utf8').strip()
-        except subprocess.CalledProcessError:
-            sys.exit(125)
-
-    if not args.debug:
-        docker_run_cmd(args, container_id, 'exec',
-                       f'git clone --depth=5 {VIAL_GIT_URL} {QMK_FIRMWARE_DIR}')
-        git_commit_id = docker_cmd_stdout(container_id, 'git rev-parse HEAD').strip()
-        if files_still_fresh(git_commit_id, cwd):
-            log.info("Files are still fresh! Skipping compilation!")
-            close_containers(container_id)
-            sys.exit(0)
-        docker_run_cmd(args, container_id, 'exec', 'make git-submodule')
-
-    return container_id, git_commit_id
-
-
-def compile_within_container(args: argparse.Namespace, container_id: str) -> str:
-    '''Run commands to compile all vial fw within container provided'''
-    # thank you piginzoo for showing me what i did wrong here
-    total_build_output = docker_cmd_stdout(container_id, 'qmk multibuild -j`nproc` -km vial')
-
-    docker_run_cmd(args, container_id, 'exec', 'qmk clean')
-    docker_run_cmd(args, container_id, 'exec', 'mkdir -p /vial')
-    docker_run_cmd(args, container_id, 'exec',
-                   "find /qmk_firmware -name '*_vial.*' -exec mv -t /vial {} +")
-
-    return total_build_output
-
-
-def process_build_output(line: str, vial_dir: str, container_id: str, template_data: dict):
-    '''Build the list of build lines and thread each build'''
-    conv = Ansi2HTMLConverter(dark_bg=True)
-    # line example:
-    # Build arisu:vial                                                        [WARNINGS]
-    build_string = ' '.join(line.split()[0:2])
-    build_spacing = ' ' * (PAGE_CHAR_WIDTH - len(build_string))
-    build = {
-        'sort_line': line,
-        'build_string': build_string,
-        'build_spacing': build_spacing,
-        'ok': False,
-        'warnings': False,
-        'errors': False,
-        'error_log_html': ''
-    }
-
-    if 'OK' in line:
-        build['ok'] = True
-    elif 'WARNINGS' in line:
-        build['warnings'] = True
-    elif '[ERRORS]' in line:
-        # delete bad firmware, since it is still there when it is too large
-        implied_firmware_name = line.split()[1].replace(':', '_').replace('/', '_')
-        implied_firmware_glob = glob.glob(f'{Path(vial_dir, implied_firmware_name)}.*')
-        for file_path in implied_firmware_glob:
-            Path(file_path).unlink()
-            try:
-                template_data['fw_files'].remove(PurePath(file_path).name)
-            except ValueError:
-                log.error("Could not remove %s from fw_files list", PurePath(file_path).name)
-
-        # document failure
-        errored_board = line.split()[1].split(':')[0]
-        individual_build_output = \
-            docker_cmd_stdout(container_id, f'qmk compile -kb {errored_board} -km vial')
-        html = conv.convert(individual_build_output)
-        with open(Path(vial_dir, f'{implied_firmware_name}.html'),
-                  'w', encoding="utf-8") as error_file:
-            error_file.write(html)
-
-        build['errors'] = True
-        build['error_log_html'] = f'{implied_firmware_name}.html'
-    template_data['builds'].append(build)
 
 
 if __name__ == "__main__":
