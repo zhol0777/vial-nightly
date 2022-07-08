@@ -19,7 +19,7 @@ from ansi2html import Ansi2HTMLConverter
 from jinja2 import Template
 
 from docker_interface import docker_cmd_stdout, docker_run_cmd, close_containers, prepare_container
-from util import FIRMWARE_TAR, PAGE_HEADER, PAGE_CHAR_WIDTH
+from util import FIRMWARE_TAR, PAGE_HEADER, PAGE_CHAR_WIDTH, freshness_check
 
 
 logging.basicConfig(level=logging.DEBUG)
@@ -164,7 +164,12 @@ def main():
     cwd = Path.cwd()
     vial_dir = Path(cwd, 'vial')
 
-    container_id, git_commit_id = prepare_container(args, cwd)
+    git_commit_id, fresh = freshness_check(cwd)
+    if not fresh:
+        log.error("Local files are implied to be fresh still!")
+        sys.exit(1)
+
+    container_id = prepare_container(args)
     git_log = docker_cmd_stdout(args, container_id, 'git log --decorate')
     git_log = git_log.replace('<', '(')
     git_log = git_log.replace('>', ')')
@@ -188,7 +193,11 @@ def main():
 
     # this has no subdirectories, so no need to recurse
     for dir_file in vial_dir.iterdir():
-        dir_file.unlink()
+        try:
+            dir_file.unlink()
+        except IsADirectoryError:
+            # wow looks like you left a folder in here!
+            log.exception("Could not unlink %s due to it not being a file", dir_file)
     template_path = Path(cwd, 'templates', 'template.html.jinja')
     html_template = Template(template_path.read_text(encoding='utf8'),
                              trim_blocks=True, lstrip_blocks=True)
@@ -208,7 +217,7 @@ def main():
         if line:
             new_thread = Thread(target=process_build_output,
                                 args=(args, line, vial_dir, container_id, template_data,
-                                    deepcopy(rules_mk_file_list)))
+                                      deepcopy(rules_mk_file_list)))
             open_threads.append(new_thread)
             new_thread.start()
 
