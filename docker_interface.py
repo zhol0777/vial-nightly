@@ -59,6 +59,7 @@ def prepare_container(args: argparse.Namespace) -> str:
             sys.exit(125)
 
     if not args.debug:
+        docker_run_cmd(args, container_id, 'exec', 'python3 -m pip install qmk')
         docker_run_cmd(args, container_id, 'exec',
                        f'git clone --depth=5 {VIAL_GIT_URL} {QMK_FIRMWARE_DIR}')
         docker_run_cmd(args, container_id, 'exec', 'make git-submodule')
