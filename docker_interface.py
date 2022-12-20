@@ -12,7 +12,7 @@ log = logging.getLogger(__name__)
 
 
 def docker_run_cmd(args: argparse.Namespace, container_id: str, cmd: str, line: str = None,
-                   check: bool=True, get_stdout: bool=False) -> subprocess.CompletedProcess:
+                   check: bool = True, get_stdout: bool = False) -> subprocess.CompletedProcess:
     '''Frontend to simplify running cmd in docker'''
     subprocess_cmd = f'docker {cmd} {container_id} {line}'
     log_subprocess_cmd = f'docker {cmd} {container_id[0:6]} {line}'
@@ -31,7 +31,7 @@ def docker_run_cmd(args: argparse.Namespace, container_id: str, cmd: str, line: 
 
 
 def docker_cmd_stdout(args: argparse.Namespace, container_id: str, line: str,
-                      check: bool=True) -> str:
+                      check: bool = True) -> str:
     '''Frontend to simplify getting stdout from docker command'''
     proc = docker_run_cmd(args, container_id, 'exec', line, check, True)
     return proc.stdout.decode('utf-8')
