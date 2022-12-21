@@ -85,7 +85,7 @@ def process_build_output(args: argparse.Namespace, line: str, vial_dir: Path, co
 
 def log_rules_mk_per_firmware(args: argparse.Namespace, line: str, vial_dir: Path,
                               container_id: str, conv: Ansi2HTMLConverter, build: dict,
-                              rules_mk_file_list: list[str]) -> None:
+                              rules_mk_file_list: list) -> None:
     '''find rules.mk for each build and generate html accordingly'''
     # kbdfans_kbd67_mkiirgb_v3_vial
     implied_firmware_name = line.split()[1].replace(':', '_').replace('/', '_')
@@ -192,7 +192,7 @@ def main():
     vial_dir = Path(cwd, 'vial')
 
     git_commit_id, fresh = freshness_check(cwd)
-    if not fresh and not args.force:
+    if fresh and not args.force:
         log.error("Local files are implied to be fresh still!")
         sys.exit(1)
 
