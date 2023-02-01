@@ -40,6 +40,7 @@ def parse_args() -> argparse.Namespace:
 def compile_within_container(args: argparse.Namespace, container_id: str) -> str:
     '''Run commands to compile all vial fw within container provided'''
     # thank you piginzoo for showing me what i did wrong here
+    docker_run_cmd(args, container_id, 'exec', 'python3 -m pip install -r /qmk_firmware/requirements.txt')
     total_build_output = docker_cmd_stdout(args, container_id, 'qmk multibuild -j`nproc` -km vial',
                                            False)
 
