@@ -22,14 +22,14 @@ from docker_interface import docker_cmd_stdout, docker_run_cmd, close_containers
 from util import FIRMWARE_TAR, PAGE_HEADER, PAGE_CHAR_WIDTH, freshness_check
 
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 
 
 def parse_args() -> argparse.Namespace:
     '''Parse two arguments, one for debug mode, other to just remember to close containers'''
     parser = argparse.ArgumentParser()
-    parser.add_argument('--debug', '-d', action='store_true')
+    parser.add_argument('--debug', '-d', action='store_true', default=False)
     parser.add_argument('--force', '-f', action='store_true', default=False)
     parser.add_argument('-close-docker-containers', '-cdc', action='store_true')
     parser.set_defaults(debug=False, close_docker_containers=False)
@@ -188,6 +188,8 @@ def main():
     if args.close_docker_containers:
         close_containers('vial')
         sys.exit(0)
+    if args.debug:
+        log.setLevel(logging.DEBUG)
 
     cwd = Path.cwd()
     vial_dir = Path(cwd, 'vial')
@@ -213,7 +215,7 @@ def main():
 
     total_build_output = compile_within_container(args, container_id)
 
-    log.info("Copying tarball to local")
+    log.debug("Copying tarball to local")
     subprocess.run(f'docker cp {container_id}:/vial -> {FIRMWARE_TAR}',
                    shell=True, stdout=subprocess.DEVNULL, check=True)
 
@@ -232,7 +234,7 @@ def main():
     html_template = Template(template_path.read_text(encoding='utf8'),
                              trim_blocks=True, lstrip_blocks=True)
 
-    log.info("Untar tarball")
+    log.debug("Untar tarball")
     subprocess.run(f'tar -xvf {FIRMWARE_TAR}', shell=True,
                    stdout=subprocess.DEVNULL, check=True)
     Path(cwd, FIRMWARE_TAR).unlink()

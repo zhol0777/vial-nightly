@@ -7,7 +7,7 @@ import sys
 
 from util import QMK_DOCKER_IMAGE, QMK_FIRMWARE_DIR, VIAL_GIT_URL
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 
 
@@ -16,7 +16,7 @@ def docker_run_cmd(args: argparse.Namespace, container_id: str, cmd: str, line: 
     '''Frontend to simplify running cmd in docker'''
     subprocess_cmd = f'docker {cmd} {container_id} {line}'
     log_subprocess_cmd = f'docker {cmd} {container_id[0:6]} {line}'
-    log.info('Running: %s', log_subprocess_cmd)
+    log.debug('Running: %s', log_subprocess_cmd)
     stdout_pipe = subprocess.PIPE if get_stdout else subprocess.DEVNULL
     stderr_pipe = subprocess.STDOUT if get_stdout else subprocess.DEVNULL
     try:
@@ -39,7 +39,7 @@ def docker_cmd_stdout(args: argparse.Namespace, container_id: str, line: str,
 
 def close_containers(container_id: str) -> None:
     '''Close qmkfm/basecontainer docker containers when needed'''
-    log.info("Closing docker containers...")
+    log.debug("Closing docker containers...")
     subprocess.run(f'docker stop {container_id}', shell=True, check=True)
     subprocess.run(f'docker container rm {container_id}', shell=True, check=True)
 
@@ -49,7 +49,7 @@ def prepare_container(args: argparse.Namespace) -> str:
     if args.debug:
         container_id = 'vial'
     else:
-        log.info("Creating docker containers")
+        log.debug("Creating docker containers")
         try:
             create_container_command = \
                 f'docker run -dit --name vial --workdir {QMK_FIRMWARE_DIR} {QMK_DOCKER_IMAGE}'
