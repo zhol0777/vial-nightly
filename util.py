@@ -17,7 +17,6 @@ VIAL_LATEST_COMMIT_URL = \
 QMK_FIRMWARE_DIR = '/qmk_firmware'
 QMK_DOCKER_IMAGE = 'qmkfm/qmk_cli'
 PAGE_HEADER = 'vial-qmk nightly'
-FIRMWARE_TAR = 'vial-files.tar'
 COMMIT_ID_FILE = '.commit_id'
 PAGE_CHAR_WIDTH = 72
 
@@ -28,7 +27,7 @@ def freshness_check(cwd: Path) -> Tuple[str, bool]:
     and return True if it matches repo on pulling from git most recently,
     and save us work of recompiling files all the way over again
     '''
-    latest_commit = requests.get(VIAL_LATEST_COMMIT_URL)
+    latest_commit = requests.get(VIAL_LATEST_COMMIT_URL, timeout=30)
     latest_commit_dict = latest_commit.json()
     new_commit_id = latest_commit_dict['sha']
 

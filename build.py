@@ -19,7 +19,7 @@ from ansi2html import Ansi2HTMLConverter
 from jinja2 import Template
 
 from docker_interface import docker_cmd_stdout, docker_run_cmd, close_containers, prepare_container
-from util import FIRMWARE_TAR, PAGE_HEADER, PAGE_CHAR_WIDTH, freshness_check
+from util import PAGE_HEADER, PAGE_CHAR_WIDTH, freshness_check
 
 
 logging.basicConfig(level=logging.INFO)
@@ -100,8 +100,7 @@ def log_rules_mk_per_firmware(args: argparse.Namespace, line: str, vial_dir: Pat
         if len(new_rules_mk_file_list) == 0:
             # if odd possibility that the vial rules.mk doesn't exist somewhere in that subdir, bail
             continue
-        else:
-            rules_mk_file_list = new_rules_mk_file_list  # type: ignore
+        rules_mk_file_list = new_rules_mk_file_list  # type: ignore
         if len(rules_mk_file_list) == 1:
             # qmkfm basecontainer is debian, hence, forced posixpath
             build['rules_mk_html'] = generate_rules_mk_html(args, container_id,
@@ -213,12 +212,6 @@ def main():
         'fw_files': []
     }
 
-    total_build_output = compile_within_container(args, container_id)
-
-    log.debug("Copying tarball to local")
-    subprocess.run(f'docker cp {container_id}:/vial -> {FIRMWARE_TAR}',
-                   shell=True, stdout=subprocess.DEVNULL, check=True)
-
     # prepare serving for creation/refresh
     Path('vial').mkdir(exist_ok=True)
 
@@ -230,14 +223,10 @@ def main():
             # wow looks like you left a folder in here!
             log.exception("Could not unlink %s due to it not being a file",
                           dir_file)
+    total_build_output = compile_within_container(args, container_id)
     template_path = Path(cwd, 'templates', 'template.html.jinja')
     html_template = Template(template_path.read_text(encoding='utf8'),
                              trim_blocks=True, lstrip_blocks=True)
-
-    log.debug("Untar tarball")
-    subprocess.run(f'tar -xvf {FIRMWARE_TAR}', shell=True,
-                   stdout=subprocess.DEVNULL, check=True)
-    Path(cwd, FIRMWARE_TAR).unlink()
 
     for fw_file in vial_dir.iterdir():
         template_data['fw_files'].append(fw_file.name)
