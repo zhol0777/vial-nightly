@@ -14,6 +14,8 @@ log = logging.getLogger(__name__)
 def docker_run_cmd(args: argparse.Namespace, container_id: str, cmd: str, line: str = None,
                    check: bool = True, get_stdout: bool = False) -> subprocess.CompletedProcess:
     '''Frontend to simplify running cmd in docker'''
+    if args.verbose:
+        log.setLevel(logging.DEBUG)
     subprocess_cmd = f'docker {cmd} {container_id} {line}'
     log_subprocess_cmd = f'docker {cmd} {container_id[0:6]} {line}'
     log.debug('Running: %s', log_subprocess_cmd)
@@ -45,7 +47,10 @@ def close_containers(container_id: str) -> None:
 
 
 def prepare_container(args: argparse.Namespace) -> str:
-    '''Spin up docker container from qmkfm/base_container and return container ID'''
+    '''Spin up docker container from qmkfm/qmk_cli and return container ID'''
+    if args.verbose:
+        log.setLevel(logging.DEBUG)
+
     if args.debug:
         container_id = 'vial'
     else:
@@ -59,9 +64,9 @@ def prepare_container(args: argparse.Namespace) -> str:
             sys.exit(125)
 
     if not args.debug:
-        docker_run_cmd(args, container_id, 'exec', 'python3 -m pip install qmk')
         docker_run_cmd(args, container_id, 'exec',
                        f'git clone --depth=5 {VIAL_GIT_URL} {QMK_FIRMWARE_DIR}')
+        docker_run_cmd(args, container_id, 'exec', f'python3 -m pip install -r {QMK_FIRMWARE_DIR}/requirements.txt')
         docker_run_cmd(args, container_id, 'exec', 'make git-submodule')
 
     return container_id

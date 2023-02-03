@@ -30,6 +30,7 @@ def parse_args() -> argparse.Namespace:
     '''Parse two arguments, one for debug mode, other to just remember to close containers'''
     parser = argparse.ArgumentParser()
     parser.add_argument('--debug', '-d', action='store_true', default=False)
+    parser.add_argument('--verbose', '-v', action='store_true', default=False)
     parser.add_argument('--force', '-f', action='store_true', default=False)
     parser.add_argument('-close-docker-containers', '-cdc', action='store_true')
     parser.set_defaults(debug=False, close_docker_containers=False)
@@ -40,7 +41,6 @@ def parse_args() -> argparse.Namespace:
 def compile_within_container(args: argparse.Namespace, container_id: str) -> str:
     '''Run commands to compile all vial fw within container provided'''
     # thank you piginzoo for showing me what i did wrong here
-    docker_run_cmd(args, container_id, 'exec', 'python3 -m pip install -r /qmk_firmware/requirements.txt')
     total_build_output = docker_cmd_stdout(args, container_id, 'qmk multibuild -j`nproc` -km vial',
                                            False)
 
@@ -174,7 +174,7 @@ def process_compilation_error(args: argparse.Namespace, line: str, vial_dir: Pat
 
 def main():
     '''
-    Spin up docker container for qmkfm/base_container
+    Spin up docker container for qmkfm/qmk_cli
     Pull vial-qmk and init sub-modules
     Build all possible firmware with vial keymap, grabbing output along the way
     Clean and organize firmware into other folder in container
@@ -188,7 +188,7 @@ def main():
     if args.close_docker_containers:
         close_containers('vial')
         sys.exit(0)
-    if args.debug:
+    if args.verbose:
         log.setLevel(logging.DEBUG)
 
     cwd = Path.cwd()
