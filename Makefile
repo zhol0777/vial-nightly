@@ -7,13 +7,13 @@ docker:
 start: docker
 		python3 ./build.py
 
-lint: flake8 mypy pylint
+lint: flake8 pylint mypy
 
 flake8:
-		flake8 *.py
+		python3 -m flake8 *.py
 
 pylint:
-		pylint *.py
+		python3 -m pylint *.py
 
 mypy:
-		mypy *.py
+		python3 -m mypy *.py

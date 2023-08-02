@@ -62,7 +62,7 @@ def prepare_container(args: argparse.Namespace) -> str:
         log.debug("Creating docker containers")
         try:
             create_container_command = \
-                f'docker run -dit --name vial '\
+                f'docker run -dit --name vial --cpus="3" '\
                 f'--mount type=bind,source={Path.cwd()}/qmk_firmware,target={QMK_FIRMWARE_DIR} '\
                 f'--mount type=bind,source={Path.cwd()}/vial,target=/vial '\
                 f'--workdir {QMK_FIRMWARE_DIR} {QMK_DOCKER_IMAGE}'
@@ -73,13 +73,16 @@ def prepare_container(args: argparse.Namespace) -> str:
 
     if not args.debug:
         # see if git directory exists properly
-        if subprocess.call(['git', '-C', 'qmk_firmware', 'status'],
-                           stderr=subprocess.STDOUT, stdout=open(os.devnull, 'w')):
+        error_code = subprocess.call(['git', '-C', 'qmk_firmware', 'status'],
+                                     stderr=subprocess.STDOUT, stdout=open(os.devnull, 'w'))
+        if not error_code:
             # just pull if it's already there
+            log.debug("pulling git from origin due to exit code %s", error_code)
             docker_run_cmd(args, container_id, 'exec',
                            f'git -C {QMK_FIRMWARE_DIR} pull origin {DEFAULT_BRANCH}')
         else:
             # clone if it isn't downloaded yet
+            log.debug("folder not there, cloning shallow")
             docker_run_cmd(args, container_id, 'exec',
                            f'git clone --depth=5 {VIAL_GIT_URL} {QMK_FIRMWARE_DIR}')
         docker_run_cmd(args, container_id, 'exec',

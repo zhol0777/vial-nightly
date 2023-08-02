@@ -22,7 +22,7 @@ from docker_interface import docker_cmd_stdout, docker_run_cmd, close_containers
 from util import PAGE_HEADER, PAGE_CHAR_WIDTH, freshness_check
 
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 log = logging.getLogger(__name__)
 
 
@@ -40,10 +40,13 @@ def parse_args() -> argparse.Namespace:
 
 def compile_within_container(args: argparse.Namespace, container_id: str) -> str:
     '''Run commands to compile all vial fw within container provided'''
+    docker_run_cmd(args, container_id, 'exec', 'rm -r keyboards/keychron')
     # thank you piginzoo for showing me what i did wrong here
-    total_build_output = docker_cmd_stdout(args, container_id, 'qmk multibuild -j`nproc` -km vial',
+    total_build_output = docker_cmd_stdout(args, container_id,
+                                           'qmk mass-compile -j`nproc` -km vial',
                                            False)
 
+    docker_run_cmd(args, container_id, 'exec', 'git stash')
     docker_run_cmd(args, container_id, 'exec', 'qmk clean')
     docker_run_cmd(args, container_id, 'exec', 'mkdir -p /vial')
     docker_run_cmd(args, container_id, 'exec',
@@ -160,7 +163,7 @@ def process_compilation_error(args: argparse.Namespace, line: str, vial_dir: Pat
     errored_board = line.split()[1].split(':')[0]
     individual_build_output = \
         docker_cmd_stdout(args, container_id,
-                          f'qmk compile -kb {errored_board} -km vial',
+                          f'make {errored_board}:vial',
                           False)
     html = conv.convert(individual_build_output)
     with open(Path(vial_dir, f'{implied_firmware_name}_errors.html'),
@@ -199,7 +202,7 @@ def main():
         sys.exit(1)
 
     container_id = prepare_container(args)
-    git_log = docker_cmd_stdout(args, container_id, 'git log --decorate')
+    git_log = docker_cmd_stdout(args, container_id, 'git log --decorate -n 5')
     git_log = git_log.replace('<', '(')
     git_log = git_log.replace('>', ')')
     template_data = {
