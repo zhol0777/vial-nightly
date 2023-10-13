@@ -31,6 +31,7 @@ okin#3938 hosts [a similar solution](https://gitlab.com/okin/vial-qmk-firmwares)
 * Make index.html look better
   * Ape qmk.tzarc.io's design less
     * sorry, tzarc
-* List state of `rules.mk` for each fw to indicate which features need to be disabled
+* ~~List state of `rules.mk` for each fw to indicate which features need to be disabled~~
   * Then think of a way to present it in a decent way
-* Mount git repo from a specifc folder on host instead of on container fs
+* ~~Mount git repo from a specifc folder on host instead of on container fs~~
+* recognize when to error out and prevent writing to `.commit_id` if job fails
