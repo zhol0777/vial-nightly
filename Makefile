@@ -4,6 +4,9 @@ install-requirements: source
 docker:
 		sudo systemctl start docker
 
+docker-image: docker
+		sudo docker build -t vial_nightly .
+
 start: docker
 		python3 ./build.py
 

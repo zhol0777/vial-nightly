@@ -16,7 +16,8 @@ VIAL_LATEST_COMMIT_URL = \
     f'https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/commits/' \
     f'{DEFAULT_BRANCH}'
 QMK_FIRMWARE_DIR = '/qmk_firmware'
-QMK_DOCKER_IMAGE = 'qmkfm/qmk_cli'
+# QMK_DOCKER_IMAGE = 'qmkfm/qmk_cli'
+QMK_DOCKER_IMAGE = 'vial_nightly'
 PAGE_HEADER = 'vial-qmk nightly'
 COMMIT_ID_FILE = '.commit_id'
 PAGE_CHAR_WIDTH = 72
