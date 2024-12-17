@@ -203,7 +203,7 @@ def main():
 
     git_commit_id, fresh = freshness_check(cwd)
     if fresh and not args.force:
-        log.error("Local files are implied to be fresh still!")
+        log.debug("Local files are implied to be fresh still!")
         sys.exit(1)
 
     container = prepare_container(args)

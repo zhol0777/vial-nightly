@@ -40,16 +40,17 @@ def prepare_container(args: argparse.Namespace) -> docker.models.containers.Cont
         log.setLevel(logging.DEBUG)
     client = docker.from_env()
     # create volume for qmk if necessary
-    try:
-        client.volumes.get('qmk')
-    except docker.errors.NotFound:
-        client.volumes.create('qmk')
+    # try:
+    #     client.volumes.get('qmk')
+    # except docker.errors.NotFound:
+    #     client.volumes.create('qmk')
     fw_dir_mnt = docker.types.Mount('/vial', str(Path.cwd() / 'vial'), type="bind")
     vial_container = client.containers.run(QMK_DOCKER_IMAGE,
                                            name='vial',
                                            detach=True,
                                            tty=True,
-                                           volumes=['qmk:/qmk_firmware'],
+                                           # reusing volume seems to cause uf2 complation issue
+                                           # volumes=['qmk:/qmk_firmware'],
                                            mounts=[fw_dir_mnt],
                                            working_dir=QMK_FIRMWARE_DIR,
                                            auto_remove=True)
