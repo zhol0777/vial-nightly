@@ -1,23 +1,26 @@
 '''boilerplate interactions with docker i need'''
 
-from pathlib import Path
-from typing import Tuple
 import argparse
 import logging
+from pathlib import Path
+from typing import Tuple
 
-
+from docker.errors import APIError
+from docker.models.containers import Container
+from docker.types import Mount
 import docker
 
-from util import QMK_DOCKER_IMAGE, QMK_FIRMWARE_DIR, VIAL_GIT_URL, DEFAULT_BRANCH
+
+from util import DEFAULT_BRANCH, QMK_DOCKER_IMAGE, QMK_FIRMWARE_DIR, VIAL_GIT_URL
 
 log = logging.getLogger(__name__)
 
 
-def exec_run_wrapper(container: docker.models.containers.Container,
+def exec_run_wrapper(container: Container,
                      cmd: str) -> Tuple[int, str]:
     '''Wraps output decoded'''
     log.debug("docker exec %s %s", container.name, cmd)
-    exit_code, bytestring_output = container.exec_run(cmd)
+    exit_code, bytestring_output = container.exec_run(cmd)  # type: ignore
     log.debug("exit_code: %s, output: %s", exit_code, bytestring_output.decode('utf-8'))
     return exit_code, bytestring_output.decode('utf-8')
 
@@ -30,11 +33,11 @@ def close_containers(container_id: str) -> None:
     container.stop()
     try:
         container.remove()
-    except docker.errors.APIError:
+    except APIError:
         pass
 
 
-def prepare_container(args: argparse.Namespace) -> docker.models.containers.Container:
+def prepare_container(args: argparse.Namespace) -> Container:
     '''create docker volume, spin up container, mount everything in right location'''
     if args.verbose:
         log.setLevel(logging.DEBUG)
@@ -44,7 +47,7 @@ def prepare_container(args: argparse.Namespace) -> docker.models.containers.Cont
     #     client.volumes.get('qmk')
     # except docker.errors.NotFound:
     #     client.volumes.create('qmk')
-    fw_dir_mnt = docker.types.Mount('/vial', str(Path.cwd() / 'vial'), type="bind")
+    fw_dir_mnt = Mount('/vial', str(Path.cwd() / 'vial'), type="bind")
     vial_container = client.containers.run(QMK_DOCKER_IMAGE,
                                            name='vial',
                                            detach=True,

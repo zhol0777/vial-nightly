@@ -1,19 +1,22 @@
-install-requirements: source
-		python3 -m pip install -U -r requirements.txt
+venv:
+	uv venv
+
+activate:
+	echo source .venv/bin/activate
+
+install-requirements:
+	uv pip install -r dependencies.txt
 
 docker:
-		sudo systemctl start docker
+	sudo systemctl start docker
 
 start: docker
-		python3 ./build.py
+	python3 ./build.py
 
-lint: flake8 pylint mypy
+lint: ruff mypy
 
-flake8:
-		python3 -m flake8 *.py
-
-pylint:
-		python3 -m pylint *.py
+ruff:
+	python3 -m ruff check *.py --config ruff.toml
 
 mypy:
-		python3 -m mypy *.py
+	python3 -m mypy *.py --check-untyped-defs

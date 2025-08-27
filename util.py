@@ -1,11 +1,10 @@
 '''utility function and variables'''
 
-from pathlib import Path
-from typing import Tuple
 import logging
+from pathlib import Path
+from typing import List, Tuple, TypedDict
 
 import requests
-
 
 REPO_OWNER = 'vial-kb'
 REPO_NAME = 'vial-qmk'
@@ -23,6 +22,32 @@ PAGE_CHAR_WIDTH = 72
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
+
+
+class BuildDict(TypedDict, total=False):
+    '''
+    Describe individual firmware build artifact and its results
+    '''
+    sort_line: str
+    build_string: str
+    build_spacing: str
+    ok: bool
+    warnings: bool
+    errors: bool
+    error_log_html: str
+    rules_mk_html: str
+
+
+class TemplateDataDict(TypedDict):
+    '''
+    Describe the template data for rendering HTML reports
+    '''
+    page_header: str
+    git_commit_id: str
+    build_time: str
+    git_log: str
+    builds: List[BuildDict]
+    fw_files: List[str]
 
 
 def freshness_check(cwd: Path) -> Tuple[str, bool]:

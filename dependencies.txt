@@ -1,3 +1,9 @@
 ansi2html
 docker
 jinja2
+requests
+
+ruff
+mypy
+types-requests
+types-docker

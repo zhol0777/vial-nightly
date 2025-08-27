@@ -4,25 +4,23 @@
 Mostly just builds vial firmware blobs and does some organizing and touching up index.html
 '''
 
-from typing import List
 import argparse
+import concurrent.futures
 import glob
 import logging
-import subprocess
+import os
 import shutil
+import subprocess
 import sys
-
 from copy import deepcopy
 from pathlib import Path, PosixPath, PurePath
-from threading import Thread
 
 from ansi2html import Ansi2HTMLConverter
+from docker.models.containers import Container
 from jinja2 import Template
-import docker
 
-from docker_interface import close_containers, prepare_container, exec_run_wrapper
-from util import PAGE_HEADER, PAGE_CHAR_WIDTH, freshness_check, set_last_successful_build
-
+from docker_interface import close_containers, exec_run_wrapper, prepare_container
+from util import PAGE_CHAR_WIDTH, PAGE_HEADER, BuildDict, TemplateDataDict, freshness_check, set_last_successful_build
 
 logging.basicConfig(level=logging.DEBUG)
 log = logging.getLogger(__name__)
@@ -40,13 +38,15 @@ def parse_args() -> argparse.Namespace:
     return args
 
 
-def compile_within_container(container: docker.models.containers.Container) -> str:
+def compile_within_container(container: Container) -> str:
     '''Run commands to compile all vial fw within container provided'''
     # these take tons of machine time to compile and by many reports are broken
     exec_run_wrapper(container, 'rm -r keyboards/keychron')
     # thank you piginzoo for showing me what i did wrong here
-    _, nproc_str = exec_run_wrapper(container, 'nproc')
-    nproc = int(nproc_str) - 1 or 1
+    if nproc := os.cpu_count():
+        nproc = max(nproc - 1, 1)
+    else:
+        nproc = 1
     _, total_build_output = exec_run_wrapper(container,
                                              f'qmk mass-compile -j{nproc} -km vial')
     command_list = ['git stash', 'qmk clean', 'mkdir -p /vial',
@@ -58,15 +58,16 @@ def compile_within_container(container: docker.models.containers.Container) -> s
 
 
 def process_build_output(line: str, vial_dir: Path,
-                         container: docker.models.containers.Container,
-                         template_data: dict, rules_mk_file_list: list) -> None:
+                         container: Container,
+                         template_data: TemplateDataDict,
+                         rules_mk_file_list: list[str]) -> None:
     '''Build the list of build lines and thread each build'''
     conv = Ansi2HTMLConverter(dark_bg=True)
     # line example:
     # Build kbdfans/kbd67/mkiirgb/v3:vial                                     [WARNINGS]
     build_string = ' '.join(line.split()[0:2])  # Build kbdfans/kbd67/mkiirgb/v3:vial
     build_spacing = ' ' * (PAGE_CHAR_WIDTH - len(build_string))
-    build = {
+    build: BuildDict = {
         'sort_line': line,
         'build_string': build_string,
         'build_spacing': build_spacing,
@@ -82,19 +83,18 @@ def process_build_output(line: str, vial_dir: Path,
 
     if '[ERRORS]' in line:
         process_compilation_error(line, vial_dir, container, conv, build, template_data)
-    else:
-        if 'OK' in line:
-            build['ok'] = True
-        elif 'WARNINGS' in line:
-            build['warnings'] = True
+    elif 'OK' in line:
+        build['ok'] = True
+    elif 'WARNINGS' in line:
+        build['warnings'] = True
     template_data['builds'].append(build)
 
 
 # pylint: disable=too-many-arguments
 def log_rules_mk_per_firmware(line: str, vial_dir: Path,
-                              container: docker.models.containers.Container,
-                              conv: Ansi2HTMLConverter, build: dict,
-                              rules_mk_file_list: list) -> None:
+                              container: Container,
+                              conv: Ansi2HTMLConverter, build: BuildDict,
+                              rules_mk_file_list: list[str]) -> None:
     '''find rules.mk for each build and generate html accordingly'''
     # kbdfans_kbd67_mkiirgb_v3_vial
     implied_firmware_name = line.split()[1].replace(':', '_').replace('/', '_')
@@ -116,7 +116,7 @@ def log_rules_mk_per_firmware(line: str, vial_dir: Path,
                                                             rules_mk_file_list[0],  # type: ignore
                                                             vial_dir)
             continue
-    if not build['rules_mk_html']:
+    if not build.get('rules_mk_html'):
         # at this point, rules_mk_file_list should be shrunk down enough to deal with ambiguity
         # to where we are, for ex. comparing subdirs
         # ['argo_works', 'ishi', '80', 'mk0_avr', 'vial'] to
@@ -124,17 +124,17 @@ def log_rules_mk_per_firmware(line: str, vial_dir: Path,
         #  ./keyboards/argo_works/ishi/80/mk0_avr/keymaps/vial/rules.mk]
         # so we can do a bit of obvious filtering
         for possible_rules_mk in rules_mk_file_list:
-            shared_dirs = set.intersection(set(subdirs), set(possible_rules_mk.split('/')))
+            shared_dirs: set[str] = set.intersection(set(subdirs), set(possible_rules_mk.split('/')))
             if len(shared_dirs) == len(subdirs):
                 build['rules_mk_html'] = \
                     generate_rules_mk_html(container, conv, implied_firmware_name,
                                            possible_rules_mk, vial_dir)
-        if not build['rules_mk_html']:
+        if not build.get('rules_mk_html'):
             log.error("Could not find rules.mk correctly for %s! Filtered paths are %s",
                       implied_firmware_name, rules_mk_file_list)
 
 
-def generate_rules_mk_html(container: docker.models.containers.Container,
+def generate_rules_mk_html(container: Container,
                            conv: Ansi2HTMLConverter, implied_firmware_name: str,
                            rules_mk_file_path: str, vial_dir: Path) -> str:
     '''provide the file path for an html that contains rules.mk for some firmware'''
@@ -150,9 +150,9 @@ def generate_rules_mk_html(container: docker.models.containers.Container,
 
 # pylint: disable=too-many-arguments
 def process_compilation_error(line: str, vial_dir: Path,
-                              container: docker.models.containers.Container,
+                              container: Container,
                               conv: Ansi2HTMLConverter,
-                              build: dict, template_data: dict, ) -> None:
+                              build: BuildDict, template_data: TemplateDataDict) -> None:
     '''Rebuild firmware that failed to compile properly, and log the build failure'''
     # delete bad firmware, since it is still there when it is too large
     implied_firmware_name = line.split()[1].replace(':', '_') \
@@ -210,11 +210,11 @@ def main():
     _, git_log = exec_run_wrapper(container, 'git log --decorate -n 5')
     git_log = git_log.replace('<', '(')
     git_log = git_log.replace('>', ')')
-    template_data = {
+
+    template_data: TemplateDataDict = {
         'page_header': PAGE_HEADER,
         'git_commit_id': git_commit_id,
-        'build_time': subprocess.check_output("date", shell=True,
-                                              encoding='utf8'),
+        'build_time': subprocess.check_output("date", shell=True, encoding='utf8'),
         'git_log': git_log,
         'builds': [],
         'fw_files': []
@@ -227,7 +227,7 @@ def main():
     for dir_file in vial_dir.iterdir():
         try:
             dir_file.unlink()
-        except IsADirectoryError:
+        except IsADirectoryError:  # noqa
             # wow looks like you left a folder in here!
             log.exception("Could not unlink %s due to it not being a file",
                           dir_file)
@@ -242,18 +242,19 @@ def main():
 
     _, file_list_output = exec_run_wrapper(container, 'find -name rules.mk')
     rules_mk_file_list = [f for f in file_list_output.split('\n') if '/vial/' in f]
-    open_threads: List[Thread] = []
-    for line in total_build_output.split('\n'):
-        if line:
-            new_thread = Thread(target=process_build_output,
-                                args=(line, vial_dir, container,
-                                      template_data,
-                                      deepcopy(rules_mk_file_list)))
-            open_threads.append(new_thread)
-            new_thread.start()
 
-    for open_thread in open_threads:
-        open_thread.join()
+    max_workers = os.cpu_count() or 1
+    lines = [line for line in total_build_output.split('\n') if line]
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [
+            executor.submit(
+                process_build_output,
+                line, vial_dir, container, template_data, deepcopy(rules_mk_file_list)
+            )
+            for line in lines
+        ]
+        concurrent.futures.wait(futures)
 
     template_data['builds'] = sorted(template_data['builds'],
                                      key=lambda d: d['sort_line'])
@@ -266,7 +267,8 @@ def main():
                     Path(vial_dir, 'favicon.ico'))
 
     if not args.debug:
-        close_containers(container.id)
+        if container_id := getattr(container, 'id', None):
+            close_containers(container_id)
 
     set_last_successful_build(cwd, git_commit_id)
 

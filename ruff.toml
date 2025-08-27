@@ -1,0 +1,17 @@
+line-length = 120
+indent-width = 4
+output-format = "concise"
+
+[lint]
+# Enable Pyflakes (`F`) and a subset of the pycodestyle (`E`)  codes by default.
+# Unlike Flake8, Ruff doesn't enable pycodestyle warnings (`W`) or
+# McCabe complexity (`C901`) by default.
+select = ["F", "E", "W", "I", "PL", "RUF", "PERF", "N", "INT", "ARG", "YTT", "ICN"]
+ignore = ["PLR2004", "PLR6301"]
+preview = true
+
+[lint.pylint]
+max-args = 6
+max-branches = 14
+max-nested-blocks = 6
+max-locals = 20
