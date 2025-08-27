@@ -8,7 +8,6 @@ import argparse
 import concurrent.futures
 import glob
 import logging
-import os
 import shutil
 import subprocess
 import sys
@@ -20,7 +19,15 @@ from docker.models.containers import Container
 from jinja2 import Template
 
 from docker_interface import close_containers, exec_run_wrapper, prepare_container
-from util import PAGE_CHAR_WIDTH, PAGE_HEADER, BuildDict, TemplateDataDict, freshness_check, set_last_successful_build
+from util import (
+    PAGE_CHAR_WIDTH,
+    PAGE_HEADER,
+    BuildDict,
+    TemplateDataDict,
+    determine_worker_count,
+    freshness_check,
+    set_last_successful_build,
+)
 
 logging.basicConfig(level=logging.DEBUG)
 log = logging.getLogger(__name__)
@@ -43,12 +50,9 @@ def compile_within_container(container: Container) -> str:
     # these take tons of machine time to compile and by many reports are broken
     exec_run_wrapper(container, 'rm -r keyboards/keychron')
     # thank you piginzoo for showing me what i did wrong here
-    if nproc := os.cpu_count():
-        nproc = max(nproc - 1, 1)
-    else:
-        nproc = 1
+    nproc = determine_worker_count()
     _, total_build_output = exec_run_wrapper(container,
-                                             f'qmk mass-compile -j{nproc} -km vial')
+                                             f'qmk mass-compile -j {nproc} -km vial')
     command_list = ['git stash', 'qmk clean', 'mkdir -p /vial',
                     'find /qmk_firmware -maxdepth 1 -name "*vial*" -exec mv -t /vial {} +']
     for cmd in command_list:
@@ -243,7 +247,7 @@ def main():
     _, file_list_output = exec_run_wrapper(container, 'find -name rules.mk')
     rules_mk_file_list = [f for f in file_list_output.split('\n') if '/vial/' in f]
 
-    max_workers = os.cpu_count() or 1
+    max_workers = determine_worker_count()
     lines = [line for line in total_build_output.split('\n') if line]
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:

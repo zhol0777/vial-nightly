@@ -5,11 +5,10 @@ import logging
 from pathlib import Path
 from typing import Tuple
 
+import docker
 from docker.errors import APIError
 from docker.models.containers import Container
 from docker.types import Mount
-import docker
-
 
 from util import DEFAULT_BRANCH, QMK_DOCKER_IMAGE, QMK_FIRMWARE_DIR, VIAL_GIT_URL
 
@@ -47,7 +46,10 @@ def prepare_container(args: argparse.Namespace) -> Container:
     #     client.volumes.get('qmk')
     # except docker.errors.NotFound:
     #     client.volumes.create('qmk')
-    fw_dir_mnt = Mount('/vial', str(Path.cwd() / 'vial'), type="bind")
+    vial_local_path = Path.cwd() / 'vial'
+    if not vial_local_path.exists():
+        vial_local_path.mkdir()
+    fw_dir_mnt = Mount('/vial', str(vial_local_path), type="bind")
     vial_container = client.containers.run(QMK_DOCKER_IMAGE,
                                            name='vial',
                                            detach=True,

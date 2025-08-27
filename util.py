@@ -1,6 +1,7 @@
 '''utility function and variables'''
 
 import logging
+import os
 from pathlib import Path
 from typing import List, Tuple, TypedDict
 
@@ -74,3 +75,11 @@ def set_last_successful_build(cwd: Path, new_commit_id: str) -> None:
     """Save file with latest successful commit id"""
     old_commit_id_file = Path(cwd, COMMIT_ID_FILE)
     old_commit_id_file.write_text(new_commit_id, encoding='utf-8')
+
+
+def determine_worker_count() -> int:
+    if nproc := os.cpu_count():
+        nproc = max(nproc - 1, 1)
+    else:
+        nproc = 1
+    return nproc
