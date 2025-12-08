@@ -51,10 +51,14 @@ def compile_within_container(container: Container) -> str:
     exec_run_wrapper(container, 'rm -r keyboards/keychron')
     # thank you piginzoo for showing me what i did wrong here
     nproc = determine_worker_count()
-    _, total_build_output = exec_run_wrapper(container,
-                                             f'qmk mass-compile -j {nproc} -km vial')
-    command_list = ['git stash', 'qmk clean', 'mkdir -p /vial',
-                    'find /qmk_firmware -maxdepth 1 -name "*vial*" -exec mv -t /vial {} +']
+    _, total_build_output = exec_run_wrapper(
+        container, f'qmk mass-compile -j {nproc} -km vial')
+    command_list = [
+        'git stash',
+        'qmk clean',
+        'mkdir -p /vial',
+        'find /qmk_firmware -maxdepth 1 -name "*_vial*" -exec mv -t /vial {} +'
+        ]
     for cmd in command_list:
         exec_run_wrapper(container, cmd)
 
@@ -211,7 +215,7 @@ def main():
         sys.exit(1)
 
     container = prepare_container(args)
-    _, git_log = exec_run_wrapper(container, 'git log --decorate -n 5')
+    _, git_log = exec_run_wrapper(container, 'git --no-pager log --decorate -n 5')
     git_log = git_log.replace('<', '(')
     git_log = git_log.replace('>', ')')
 

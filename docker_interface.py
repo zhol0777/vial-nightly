@@ -2,6 +2,7 @@
 
 import argparse
 import logging
+import sys
 from pathlib import Path
 from typing import Tuple
 
@@ -10,17 +11,23 @@ from docker.errors import APIError
 from docker.models.containers import Container
 from docker.types import Mount
 
-from util import DEFAULT_BRANCH, QMK_DOCKER_IMAGE, QMK_FIRMWARE_DIR, VIAL_GIT_URL
+from util import DEFAULT_BRANCH, QMK_FIRMWARE_DIR
 
 log = logging.getLogger(__name__)
 
 
 def exec_run_wrapper(container: Container,
-                     cmd: str) -> Tuple[int, str]:
+                     cmd: str,
+                     workdir: str = '/qmk_firmware',
+                     exit_on_nonzero: bool = False) -> Tuple[int, str]:
     '''Wraps output decoded'''
     log.debug("docker exec %s %s", container.name, cmd)
-    exit_code, bytestring_output = container.exec_run(cmd)  # type: ignore
+    exit_code, bytestring_output = container.exec_run(cmd, workdir=workdir)  # type: ignore
     log.debug("exit_code: %s, output: %s", exit_code, bytestring_output.decode('utf-8'))
+    if exit_on_nonzero and exit_code != 0:
+        log.error("Command failed: %s", cmd)
+        close_containers('vial')
+        sys.exit(0)
     return exit_code, bytestring_output.decode('utf-8')
 
 
@@ -41,16 +48,13 @@ def prepare_container(args: argparse.Namespace) -> Container:
     if args.verbose:
         log.setLevel(logging.DEBUG)
     client = docker.from_env()
-    # create volume for qmk if necessary
-    # try:
-    #     client.volumes.get('qmk')
-    # except docker.errors.NotFound:
-    #     client.volumes.create('qmk')
+    if not client.images.list(name='vial-nightly'):
+        client.images.build(path='.', tag='vial-nightly')
     vial_local_path = Path.cwd() / 'vial'
     if not vial_local_path.exists():
         vial_local_path.mkdir()
     fw_dir_mnt = Mount('/vial', str(vial_local_path), type="bind")
-    vial_container = client.containers.run(QMK_DOCKER_IMAGE,
+    vial_container = client.containers.run('vial-nightly',
                                            name='vial',
                                            detach=True,
                                            tty=True,
@@ -59,16 +63,11 @@ def prepare_container(args: argparse.Namespace) -> Container:
                                            mounts=[fw_dir_mnt],
                                            working_dir=QMK_FIRMWARE_DIR,
                                            auto_remove=True)
-    exit_code, _ = exec_run_wrapper(vial_container, f'git -C {QMK_FIRMWARE_DIR} status')
-    if not exit_code:
-        # just pull if its already there
-        exec_run_wrapper(vial_container,
-                         f'git -C {QMK_FIRMWARE_DIR} pull origin {DEFAULT_BRANCH} --ff-only')
-    else:
-        # clone if it is not downloaded laready
-        exec_run_wrapper(vial_container,
-                         f'git clone --depth=5 {VIAL_GIT_URL} {QMK_FIRMWARE_DIR}')
     exec_run_wrapper(vial_container,
-                     f'python3 -m pip install -r {QMK_FIRMWARE_DIR}/requirements.txt')
-    exec_run_wrapper(vial_container, 'make git-submodule')
+                     f'git -C {QMK_FIRMWARE_DIR} pull origin {DEFAULT_BRANCH} --ff-only')
+    exec_run_wrapper(vial_container,
+                    f'python3 -m pip install -U -r {QMK_FIRMWARE_DIR}/requirements.txt',
+                     exit_on_nonzero=True)
+    exec_run_wrapper(vial_container, 'make git-submodule',
+                     exit_on_nonzero=True)
     return vial_container

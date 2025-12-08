@@ -10,7 +10,10 @@ install-requirements:
 docker:
 	sudo systemctl start docker
 
-start: docker
+build-image:
+	docker build -t vial-nightly .
+
+start: docker build-image
 	python3 ./build.py
 
 lint: ruff mypy
