@@ -18,7 +18,7 @@ from ansi2html import Ansi2HTMLConverter
 from docker.models.containers import Container
 from jinja2 import Template
 
-from docker_interface import close_containers, exec_run_wrapper, prepare_container
+from docker_interface import close_containers, exec_run_wrapper, exec_run_wrapper_no_bail, prepare_container
 from util import (
     PAGE_CHAR_WIDTH,
     PAGE_HEADER,
@@ -148,7 +148,7 @@ def generate_rules_mk_html(container: Container,
     '''provide the file path for an html that contains rules.mk for some firmware'''
     # qmkfm basecontainer is debian, hence, forced posixpath
     rules_mk_file = PosixPath('/qmk_firmware') / rules_mk_file_path  # type: ignore
-    _, rules_mk_content = exec_run_wrapper(container, f'cat {rules_mk_file}')
+    _, rules_mk_content = exec_run_wrapper(container, f'cat {rules_mk_file}', debug_log_output=False)
     rules_mk_html = conv.convert(rules_mk_content)
     with open(Path(vial_dir, f'{implied_firmware_name}_rules.html'),
               'w', encoding="utf-8") as open_rules_mk_file:
@@ -176,7 +176,8 @@ def process_compilation_error(line: str, vial_dir: Path,
 
     # document failure
     errored_board = line.split()[1].split(':')[0]
-    _, individual_build_output = exec_run_wrapper(container, f'make {errored_board}:vial')
+    _, individual_build_output = exec_run_wrapper_no_bail(
+        container, f'make {errored_board}:vial')
     html = conv.convert(individual_build_output)
     with open(Path(vial_dir, f'{implied_firmware_name}_errors.html'),
               'w', encoding="utf-8") as error_file:
@@ -252,7 +253,9 @@ def main():
     rules_mk_file_list = [f for f in file_list_output.split('\n') if '/vial/' in f]
 
     max_workers = determine_worker_count()
-    lines = [line for line in total_build_output.split('\n') if line]
+    lines = [
+        line for line in total_build_output.split('\n') if line and line.strip().startswith('Build ')
+    ]
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = [
@@ -279,6 +282,7 @@ def main():
             close_containers(container_id)
 
     set_last_successful_build(cwd, git_commit_id)
+    log.debug("Build complete!")
 
 
 if __name__ == "__main__":

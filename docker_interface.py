@@ -19,15 +19,28 @@ log = logging.getLogger(__name__)
 def exec_run_wrapper(container: Container,
                      cmd: str,
                      workdir: str = '/qmk_firmware',
+                     debug_log_output: bool = True,
                      exit_on_nonzero: bool = False) -> Tuple[int, str]:
     '''Wraps output decoded'''
     log.debug("docker exec %s %s", container.name, cmd)
     exit_code, bytestring_output = container.exec_run(cmd, workdir=workdir)  # type: ignore
-    log.debug("exit_code: %s, output: %s", exit_code, bytestring_output.decode('utf-8'))
-    if exit_on_nonzero and exit_code != 0:
+    if debug_log_output:
+        log.debug("exit_code: %s, output: %s", exit_code, bytestring_output.decode('utf-8'))
+    if exit_code:
         log.error("Command failed: %s", cmd)
-        close_containers('vial')
-        sys.exit(0)
+        if exit_on_nonzero:
+            close_containers('vial')
+            sys.exit(0)
+    return exit_code, bytestring_output.decode('utf-8')
+
+
+def exec_run_wrapper_no_bail(container: Container,
+                             cmd: str,
+                             workdir: str = '/qmk_firmware') -> Tuple[int, str]:
+    '''Wraps output decoded, does not bail on nonzero exit'''
+    log.debug("docker exec %s %s", container.name, cmd)
+    exit_code, bytestring_output = container.exec_run(cmd, workdir=workdir)  # type: ignore
+    log.debug("exit_code: %s, output: %s", exit_code, bytestring_output.decode('utf-8'))
     return exit_code, bytestring_output.decode('utf-8')
 
 
